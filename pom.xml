@@ -46,7 +46,6 @@
         </executions>
       </plugin>
 
-      <!-- builds a standalone jar file during 'mvn package' -->
       <plugin>
         <artifactId>maven-assembly-plugin</artifactId>
         <version>2.4</version>
@@ -54,6 +53,8 @@
           <descriptorRefs>
             <descriptorRef>jar-with-dependencies</descriptorRef>
           </descriptorRefs>
+          <!-- this makes the assembled artifact the main artifact -->
+          <appendAssemblyId>false</appendAssemblyId>
           <dependencySets>
             <dependencySet>
               <excludes>
