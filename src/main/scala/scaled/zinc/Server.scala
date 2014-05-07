@@ -41,6 +41,7 @@ class Server {
     case "cwd"       => cwd = new File(args)
     case "output"    => output = new File(args)
     case "classpath" => classpath = args.split("\t").map(new File(_))
+    case "scvers"    => scalacVersion = args
     case "jcopts"    => javacOpts = args.split("\t")
     case "scopts"    => scalacOpts = args.split("\t")
     case "compile"   => compile(args.split("\t").map(new File(_)))
