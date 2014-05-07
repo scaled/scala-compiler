@@ -40,7 +40,7 @@ class Server {
   def process (command :String, args :String) :Unit = command match {
     case "cwd"       => cwd = new File(args)
     case "output"    => output = new File(args)
-    case "classpath" => classpath = args.split(":").map(new File(_))
+    case "classpath" => classpath = args.split("\t").map(new File(_))
     case "jcopts"    => javacOpts = args.split("\t")
     case "scopts"    => scalacOpts = args.split("\t")
     case "compile"   => compile(args.split("\t").map(new File(_)))
