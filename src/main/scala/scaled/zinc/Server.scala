@@ -7,6 +7,7 @@ package scaled.zinc
 import com.typesafe.zinc._
 import java.io.File
 import sbt.compiler.CompileFailed
+import scala.collection.mutable.ArrayBuffer
 import xsbti.compile.CompileOrder
 
 class Server {
@@ -66,10 +67,22 @@ class Server {
     false /*forkJava*/,
     file(output.getParentFile, "cache"))
 
+  private def expand (sources :Array[File], into :ArrayBuffer[File]) :ArrayBuffer[File] = {
+    sources foreach { s =>
+      if (s.isDirectory) expand(s.listFiles, into)
+      else {
+        val name = s.getName
+        if ((name endsWith ".scala") || (name endsWith ".scala")) into += s
+      }
+    }
+    into
+  }
+
   private def compile (sources :Array[File]) :Unit = try {
+    val exsources = expand(sources, ArrayBuffer[File]())
     val inputs = Inputs.inputs(
       classpath,
-      sources,
+      exsources,
       output,
       scalacOpts,
       javacOpts,
