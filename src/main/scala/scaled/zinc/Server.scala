@@ -64,16 +64,21 @@ class Server {
     Seq(mavenJar("org.scala-lang", "scala-reflect", scalacVersion)),
     mavenJar("com.typesafe.sbt", "sbt-interface", sbtVersion),
     mavenJar("com.typesafe.sbt", "compiler-interface", sbtVersion, Some("sources")),
-    Some(new File(System.getProperty("java.home"))),
+    findJavaHome,
     false /*forkJava*/,
     file(output.getParentFile, "cache"))
+
+  private def findJavaHome = {
+    val home = new File(System.getProperty("java.home"))
+    Some(if (home.getName == "jre") home.getParentFile else home)
+  }
 
   private def expand (sources :Array[File], into :ArrayBuffer[File]) :ArrayBuffer[File] = {
     sources foreach { s =>
       if (s.isDirectory) expand(s.listFiles, into)
       else {
         val name = s.getName
-        if ((name endsWith ".scala") || (name endsWith ".scala")) into += s
+        if ((name endsWith ".scala") || (name endsWith ".java")) into += s
       }
     }
     into
