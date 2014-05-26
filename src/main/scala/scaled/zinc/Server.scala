@@ -9,10 +9,10 @@ import java.io.File
 import java.util.{Map => JMap}
 import sbt.compiler.CompileFailed
 import scala.collection.mutable.ArrayBuffer
-import scaled.prococol.Sender
+import scaled.prococol.{Receiver, Sender}
 import xsbti.compile.CompileOrder
 
-class Server (sender :Sender) {
+class Server (sender :Sender) extends Receiver.Listener {
   import scala.collection.convert.WrapAsScala._
   import scala.collection.convert.WrapAsJava._
 
@@ -24,7 +24,7 @@ class Server (sender :Sender) {
   val compileOrder = CompileOrder.Mixed
   val incOptions = IncOptions()
 
-  def process (command :String, data :JMap[String,String]) {
+  def onMessage (command :String, data :JMap[String,String]) {
     def get[T] (key :String, defval :T, fn :String => T) = data.get(key) match {
       case null => defval
       case text => fn(text)

@@ -15,9 +15,7 @@ object Main {
 
   def main (args :Array[String]) {
     // read prococol messages from stdin and pass them to server
-    val recv = new Receiver(System.in, new Receiver.Listener() {
-      override def onMessage (name :String, data :JMap[String,String]) = server.process(name, data)
-    })
+    val recv = new Receiver(System.in, server)
     recv.run()
   }
 }
