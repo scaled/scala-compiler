@@ -4,31 +4,20 @@
 
 package scaled.zinc
 
-import java.io.{BufferedReader, InputStreamReader}
-import scala.annotation.tailrec
+import java.io.IOException
+import java.util.{Map => JMap}
+import scaled.prococol.{Sender, Receiver}
 
 object Main {
 
-  val server = new Server()
+  val sender = new Sender(System.out, true)
+  val server = new Server(sender)
 
   def main (args :Array[String]) {
-    println("hello")
-    try {
-      // we just read commands from stdin and pass them to the server for processing
-      val in = new BufferedReader(new InputStreamReader(System.in, "UTF-8"))
-      @tailrec def loop (line :String) {
-        if (line == null) return // exit
-        else line.split(" ", 2) match {
-          case Array("exit") => return // exit
-          case Array(cmd, args) => server.process(cmd, args)
-          case _ => println(s"invalid: $line")
-        }
-        loop(in.readLine)
-      }
-      loop(in.readLine)
-    } catch {
-      case e :Throwable => e.printStackTrace(System.err)
-    }
-    println("goodbye")
+    // read prococol messages from stdin and pass them to server
+    val recv = new Receiver(System.in, new Receiver.Listener() {
+      override def onMessage (name :String, data :JMap[String,String]) = server.process(name, data)
+    })
+    recv.run()
   }
 }
