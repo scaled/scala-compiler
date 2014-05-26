@@ -24,66 +24,68 @@ class Server (sender :Sender) extends Receiver.Listener {
   val compileOrder = CompileOrder.Mixed
   val incOptions = IncOptions()
 
-  def onMessage (command :String, data :JMap[String,String]) {
+  def onMessage (command :String, data :JMap[String,String]) = command match {
+    case "compile" => compile(data)
+    case _         => sender.send("error", Map("cause" -> s"Unknown command: $command"))
+  }
+
+  private def compile (data :JMap[String,String]) {
     def get[T] (key :String, defval :T, fn :String => T) = data.get(key) match {
       case null => defval
       case text => fn(text)
     }
-    if (command != "compile") sender.send("error", Map("cause" -> s"Unknown command: $command"))
-    else {
-      val cwd = get("cwd", null, new File(_))
-      val output = get("output", null, new File(_))
-      val classpath = get("classpath", Array[File](), _.split("\t").map(new File(_)))
-      val javacOpts = get("jcopts", Array[String](), _.split("\t"))
-      val scalacOpts = get("scopts", Array[String](), _.split("\t"))
-      val scalacVersion = get("scvers", defScalacVersion, s => s)
-      val sbtVersion = get("sbtvers", defSbtVersion, s => s)
-      val logTrace = get("trace", false, _.toBoolean)
+    val cwd = get("cwd", null, new File(_))
+    val output = get("output", null, new File(_))
+    val classpath = get("classpath", Array[File](), _.split("\t").map(new File(_)))
+    val javacOpts = get("jcopts", Array[String](), _.split("\t"))
+    val scalacOpts = get("scopts", Array[String](), _.split("\t"))
+    val scalacVersion = get("scvers", defScalacVersion, s => s)
+    val sbtVersion = get("sbtvers", defSbtVersion, s => s)
+    val logTrace = get("trace", false, _.toBoolean)
 
-      val logger = new sbt.Logger {
-        private var count = 0
-        private def sendText (msg :String) {
-          sender.send("log", Map("msg" -> msg))
-          count += 1
-        }
-        def trace (t : =>Throwable) {
-          if (logTrace) sendText(s"trace: $t")
-        }
-        def log (level :sbt.Level.Value, message : =>String) {
-          if (logTrace || level >= sbt.Level.Info) sendText(message)
-        }
-        def success (message : =>String) = sendText(message)
+    val logger = new sbt.Logger {
+      private var count = 0
+      private def sendText (msg :String) {
+        sender.send("log", Map("msg" -> msg))
+        count += 1
       }
+      def trace (t : =>Throwable) {
+        if (logTrace) sendText(s"trace: $t")
+      }
+      def log (level :sbt.Level.Value, message : =>String) {
+        if (logTrace || level >= sbt.Level.Info) sendText(message)
+      }
+      def success (message : =>String) = sendText(message)
+    }
 
-      val sources = get("sources", Array[File](), _.split("\t").map(new File(_)))
-      val exsources = expand(sources, ArrayBuffer[File]())
-      try {
-        val inputs = Inputs.inputs(
-          classpath,
-          exsources,
-          output,
-          scalacOpts,
-          javacOpts,
-          analysis.cache,
-          analysis.cacheMap,
-          analysis.forceClean,
-          false, // javaOnly
-          compileOrder,
-          incOptions,
-          analysis.outputRelations,
-          analysis.outputProducts,
-          analysis.mirrorAnalysis)
-        val vinputs = Inputs.verify(inputs)
-        val compiler = Compiler(zincSetup(scalacVersion, sbtVersion, output), logger)
-        compiler.compile(vinputs, Some(cwd))(logger)
-        sender.send("compile", Map("result" -> "success"))
-      } catch {
-        case cf :CompileFailed =>
-          sender.send("compile", Map("result" -> "failure"))
-        case e :Exception =>
-          logger.log(sbt.Level.Warn, s"Compiler choked $e")
-          sender.send("compile", Map("result" -> "failure"))
-      }
+    val sources = get("sources", Array[File](), _.split("\t").map(new File(_)))
+    val exsources = expand(sources, ArrayBuffer[File]())
+    try {
+      val inputs = Inputs.inputs(
+        classpath,
+        exsources,
+        output,
+        scalacOpts,
+        javacOpts,
+        analysis.cache,
+        analysis.cacheMap,
+        analysis.forceClean,
+        false, // javaOnly
+        compileOrder,
+        incOptions,
+        analysis.outputRelations,
+        analysis.outputProducts,
+        analysis.mirrorAnalysis)
+      val vinputs = Inputs.verify(inputs)
+      val compiler = Compiler(zincSetup(scalacVersion, sbtVersion, output), logger)
+      compiler.compile(vinputs, Some(cwd))(logger)
+      sender.send("compile", Map("result" -> "success"))
+    } catch {
+      case cf :CompileFailed =>
+        sender.send("compile", Map("result" -> "failure"))
+      case e :Exception =>
+        logger.log(sbt.Level.Warn, s"Compiler choked $e")
+        sender.send("compile", Map("result" -> "failure"))
     }
   }
 
