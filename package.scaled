@@ -1,8 +1,8 @@
    name: scala-compiler
+ source: git:https://github.com/scaled/scala-compiler.git
 version: 1.0
 descrip: Adapts Zinc to be more easily controlled from Scaled.
  weburl: https://github.com/scaled/scala-compiler
- srcurl: git:https://github.com/scaled/scala-compiler.git
 license: New BSD
- srcdir: src/main/scala
- bindir: target/classes
+ depend: mvn:com.typesafe.zinc:zinc:0.3.5-M3
+ depend: git:https://github.com/scaled/prococol.git
