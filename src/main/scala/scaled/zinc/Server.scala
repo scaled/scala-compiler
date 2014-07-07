@@ -34,11 +34,12 @@ class Server (sender :Sender) extends Receiver.Listener {
       case null => defval
       case text => fn(text)
     }
+    def untabsep (text :String) = if (text == "") Array[String]() else text.split("\t")
     val cwd = get("cwd", null, new File(_))
     val output = get("output", null, new File(_))
-    val classpath = get("classpath", Array[File](), _.split("\t").map(new File(_)))
-    val javacOpts = get("jcopts", Array[String](), _.split("\t"))
-    val scalacOpts = get("scopts", Array[String](), _.split("\t"))
+    val classpath = get("classpath", Array[File](), untabsep(_).map(new File(_)))
+    val javacOpts = get("jcopts", Array[String](), untabsep(_))
+    val scalacOpts = get("scopts", Array[String](), untabsep(_))
     val scalacVersion = get("scvers", defScalacVersion, s => s)
     val sbtVersion = get("sbtvers", defSbtVersion, s => s)
     val logTrace = get("trace", false, _.toBoolean)
