@@ -16,7 +16,7 @@ class Server (sender :Sender) extends Receiver.Listener {
   import scala.collection.convert.WrapAsScala._
   import scala.collection.convert.WrapAsJava._
 
-  val defScalacVersion = "2.11.0"
+  val defScalacVersion = "2.11.3"
   val defSbtVersion = "0.13.5-M3"
 
   val analysis = AnalysisOptions()
