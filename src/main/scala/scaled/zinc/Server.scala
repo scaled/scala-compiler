@@ -9,6 +9,7 @@ import java.io.File
 import java.util.{Map => JMap}
 import sbt.compiler.CompileFailed
 import scala.collection.mutable.ArrayBuffer
+import scaled.pacman.{MavenResolver, RepoId}
 import scaled.prococol.{Receiver, Sender}
 import xsbti.compile.CompileOrder
 
@@ -91,13 +92,20 @@ class Server (sender :Sender) extends Receiver.Listener {
   }
 
   private def file (root :File, comps :String*) = (root /: comps) { new File(_, _) }
-  private val userHome = new File(System.getProperty("user.home"))
-  private val m2root = file(userHome, ".m2", "repository")
+  // private val userHome = new File(System.getProperty("user.home"))
+  // private val m2root = file(userHome, ".m2", "repository")
+  private val mvn = new MavenResolver()
   private def mavenJar (groupId :String, artifactId :String, version :String,
                         classifier :Option[String] = None) = {
-    val suff = classifier.map(c => s"-$c").getOrElse("")
-    val path = groupId.split("\\.") ++ Array(artifactId, version, s"$artifactId-$version$suff.jar")
-    file(m2root, path :_*)
+    val mid = new RepoId(groupId, artifactId, version, "jar")
+    if (classifier.isDefined) println(s"Warning: classifier not yet supported: $mid -> $classifier")
+    mvn.resolve(mid).get(mid) match {
+      case null => throw new IllegalStateException("Unable to resolve artifact: $mid")
+      case path => path.toFile
+    }
+    // val suff = classifier.map(c => s"-$c").getOrElse("")
+    // val path = groupId.split("\\.") ++ Array(artifactId, version, s"$artifactId-$version$suff.jar")
+    // file(m2root, path :_*)
   }
 
   private def zincSetup (scalacVersion :String, sbtVersion :String, output :File) = Setup(
