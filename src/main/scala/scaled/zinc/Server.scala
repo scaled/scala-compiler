@@ -30,6 +30,8 @@ class Server (sender :Sender) extends Receiver.Listener {
     case _         => sender.send("error", Map("cause" -> s"Unknown command: $command"))
   }
 
+  private def sendLog (msg :String) = sender.send("log", Map("msg" -> msg))
+
   private def compile (data :JMap[String,String]) {
     def get[T] (key :String, defval :T, fn :String => T) = data.get(key) match {
       case null => defval
@@ -46,23 +48,17 @@ class Server (sender :Sender) extends Receiver.Listener {
     val logTrace = get("trace", false, _.toBoolean)
 
     val logger = new sbt.Logger {
-      private var count = 0
-      private def sendText (msg :String) {
-        sender.send("log", Map("msg" -> msg))
-        count += 1
-      }
-      def trace (t : =>Throwable) {
-        if (logTrace) sendText(s"trace: $t")
-      }
+      def trace (t : =>Throwable) :Unit = if (logTrace) sendLog(s"trace: $t") // TODO: stack trace
       def log (level :sbt.Level.Value, message : =>String) {
-        if (logTrace || level >= sbt.Level.Info) sendText(message)
+        if (logTrace || level >= sbt.Level.Info) sendLog(message)
       }
-      def success (message : =>String) = sendText(message)
+      def success (message : =>String) = sendLog(message)
     }
 
     val sources = get("sources", Array[File](), _.split("\t").map(new File(_)))
     val exsources = expand(sources, ArrayBuffer[File]())
     try {
+      val setup = zincSetup(scalacVersion, sbtVersion, output)
       val inputs = Inputs.inputs(
         classpath,
         exsources,
@@ -79,33 +75,28 @@ class Server (sender :Sender) extends Receiver.Listener {
         analysis.outputProducts,
         analysis.mirrorAnalysis)
       val vinputs = Inputs.verify(inputs)
-      val compiler = Compiler(zincSetup(scalacVersion, sbtVersion, output), logger)
+      val compiler = Compiler(setup, logger)
       compiler.compile(vinputs, Some(cwd))(logger)
       sender.send("compile", Map("result" -> "success"))
     } catch {
       case cf :CompileFailed =>
         sender.send("compile", Map("result" -> "failure"))
       case e :Exception =>
-        logger.log(sbt.Level.Warn, s"Compiler choked $e")
+        sendLog(s"Compiler choked $e")
         sender.send("compile", Map("result" -> "failure"))
     }
   }
 
   private def file (root :File, comps :String*) = (root /: comps) { new File(_, _) }
-  // private val userHome = new File(System.getProperty("user.home"))
-  // private val m2root = file(userHome, ".m2", "repository")
+
   private val mvn = new MavenResolver()
   private def mavenJar (groupId :String, artifactId :String, version :String,
                         classifier :Option[String] = None) = {
-    val mid = new RepoId(groupId, artifactId, version, "jar")
-    if (classifier.isDefined) println(s"Warning: classifier not yet supported: $mid -> $classifier")
+    val mid = new RepoId(groupId, artifactId, version, "jar", classifier getOrElse null)
     mvn.resolve(mid).get(mid) match {
-      case null => throw new IllegalStateException("Unable to resolve artifact: $mid")
+      case null => throw new RuntimeException(s"Unable to resolve artifact: $mid")
       case path => path.toFile
     }
-    // val suff = classifier.map(c => s"-$c").getOrElse("")
-    // val path = groupId.split("\\.") ++ Array(artifactId, version, s"$artifactId-$version$suff.jar")
-    // file(m2root, path :_*)
   }
 
   private def zincSetup (scalacVersion :String, sbtVersion :String, output :File) = Setup(
