@@ -39,6 +39,7 @@ class Server (sender :Sender) extends Receiver.Listener {
     }
     def untabsep (text :String) = if (text == "") Array[String]() else text.split("\t")
     val cwd = get("cwd", null, new File(_))
+    val forceClean = get("preclean", false, _.toBoolean)
     val output = get("output", null, new File(_))
     val classpath = get("classpath", Array[File](), untabsep(_).map(new File(_)))
     val javacOpts = get("jcopts", Array[String](), untabsep(_))
@@ -67,13 +68,15 @@ class Server (sender :Sender) extends Receiver.Listener {
         javacOpts,
         analysis.cache,
         analysis.cacheMap,
-        analysis.forceClean,
+        forceClean,
         false, // javaOnly
         compileOrder,
         incOptions,
         analysis.outputRelations,
         analysis.outputProducts,
         analysis.mirrorAnalysis)
+      // if we're force-cleaning, we need to delete the analyis cache file also
+      if (forceClean) inputs.cacheFile.delete()
       val vinputs = Inputs.verify(inputs)
       val compiler = Compiler(setup, logger)
       compiler.compile(vinputs, Some(cwd))(logger)
