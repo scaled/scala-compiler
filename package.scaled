@@ -4,6 +4,6 @@ version: 1.0
 descrip: Adapts Zinc to be more easily controlled from Scaled.
  weburl: https://github.com/scaled/scala-compiler
 license: New BSD
- depend: mvn:com.typesafe.zinc:zinc:0.3.5.3
+ depend: mvn:com.typesafe.zinc:zinc:0.3.9
  depend: git:https://github.com/scaled/prococol.git
  depend: git:https://github.com/scaled/pacman.git
