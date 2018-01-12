@@ -4,33 +4,29 @@
 
 package scaled.zinc
 
-import com.typesafe.zinc._
 import java.io.File
-import java.util.{Map => JMap}
-import sbt.compiler.CompileFailed
+import java.util.{Map => JMap, HashMap}
 import scala.collection.mutable.ArrayBuffer
-import scaled.pacman.{MavenResolver, RepoId}
 import scaled.prococol.{Receiver, Sender}
-import xsbti.compile.CompileOrder
+import sbt.util.{Logger, Level}
+import xsbti.{CompileFailed, Position, Problem, Severity, Reporter}
 
 class Server (sender :Sender) extends Receiver.Listener {
-  import scala.collection.convert.WrapAsScala._
-  import scala.collection.convert.WrapAsJava._
+  import scala.collection.JavaConverters._
 
-  val defScalacVersion = "2.11.2"
+  val defScalacVersion = "2.12.0"
   val defSbtVersion = "0.13.5"
 
-  val analysis = AnalysisOptions()
-  val analysisUtil = AnalysisUtil()
-  val compileOrder = CompileOrder.Mixed
-  val incOptions = IncOptions()
+  // TODO: cap these at one or two in memory
+  val setups = new HashMap[String, Zinc.CompilerSetup]()
+
+  private def send (msg :String, args :Map[String, String]) = sender.send(msg, args.asJava)
+  private def sendLog (msg :String) = send("log", Map("msg" -> msg))
 
   def onMessage (command :String, data :JMap[String,String]) = command match {
     case "compile" => compile(data)
-    case _         => sender.send("error", Map("cause" -> s"Unknown command: $command"))
+    case _         => send("error", Map("cause" -> s"Unknown command: $command"))
   }
-
-  private def sendLog (msg :String) = sender.send("log", Map("msg" -> msg))
 
   private def compile (data :JMap[String,String]) {
     def get[T] (key :String, defval :T, fn :String => T) = data.get(key) match {
@@ -39,82 +35,69 @@ class Server (sender :Sender) extends Receiver.Listener {
     }
     def untabsep (text :String) = if (text == "") Array[String]() else text.split("\t")
     val cwd = get("cwd", null, new File(_))
-    val forceClean = get("preclean", false, _.toBoolean)
+    val sessionId = get("sessionid", "<none>", s => s)
+    val target = get("target", null, new File(_))
     val output = get("output", null, new File(_))
     val classpath = get("classpath", Array[File](), untabsep(_).map(new File(_)))
     val javacOpts = get("jcopts", Array[String](), untabsep(_))
     val scalacOpts = get("scopts", Array[String](), untabsep(_))
     val scalacVersion = get("scvers", defScalacVersion, s => s)
     val sbtVersion = get("sbtvers", defSbtVersion, s => s)
+    val forceClean = get("preclean", false, _.toBoolean)
     val logTrace = get("trace", false, _.toBoolean)
 
-    val logger = new sbt.Logger {
-      def trace (t : =>Throwable) :Unit = if (logTrace) sendLog(s"trace: $t") // TODO: stack trace
-      def log (level :sbt.Level.Value, message : =>String) {
-        if (logTrace || level >= sbt.Level.Info) sendLog(message)
+    val logger = new Logger {
+      def trace (t : =>Throwable) :Unit = if (logTrace) sendLog(exToString(t))
+      def log (level :Level.Value, message : =>String) :Unit =
+        if (logTrace || level >= Level.Info) sendLog(s"scalac ($level): $message")
+      def success (message : =>String) :Unit = sendLog(s"scalac: $message")
+    }
+
+    val reporter = new Reporter {
+      var _problems = ArrayBuffer[Problem]()
+      def reset () :Unit = _problems.clear()
+      def hasWarnings = _problems.exists(_.severity == Severity.Warn)
+      def hasErrors = _problems.exists(_.severity == Severity.Error)
+      def problems :Array[Problem] = _problems.toArray
+      def log (problem :Problem) {
+        sendLog(problem.toString)
+        _problems += problem
       }
-      def success (message : =>String) = sendLog(message)
+      def printSummary () {}
+      def comment (pos :Position, msg :String) :Unit = sendLog(s"Reporter.comment $pos $msg")
     }
 
     val sources = get("sources", Array[File](), _.split("\t").map(new File(_)))
-    val exsources = expand(sources, ArrayBuffer[File]())
+    val sourceFiles = expand(sources, ArrayBuffer[File]()).toArray
     try {
-      val setup = zincSetup(scalacVersion, sbtVersion, output)
-      val inputs = Inputs.inputs(
-        classpath,
-        exsources,
-        output,
-        scalacOpts,
-        javacOpts,
-        analysis.cache,
-        analysis.cacheMap,
-        forceClean,
-        false, // javaOnly
-        compileOrder,
-        incOptions,
-        analysis.outputRelations,
-        analysis.outputProducts,
-        analysis.mirrorAnalysis)
-      // if we're force-cleaning, we need to delete the analyis cache file also
-      if (forceClean) inputs.cacheFile.delete()
-      val vinputs = Inputs.verify(inputs)
-      val compiler = Compiler(setup, logger)
-      compiler.compile(vinputs, Some(cwd))(logger)
-      sender.send("compile", Map("result" -> "success"))
+      val setup = setups.get(sessionId) match {
+        case null =>
+          val newSetup = Zinc.CompilerSetup(logger, reporter, target, scalacVersion)
+          setups.put(sessionId, newSetup)
+          newSetup
+        case setup =>
+          // TODO: validate config still matches (not likely, but if scalaVersion or target
+          // directory somehow changed, we'd want to reset)
+          setup
+      }
+
+      val inputs = setup.mkInputs(classpath, sourceFiles, output, scalacOpts, javacOpts)
+      setup.doCompile(inputs)
+      send("compile", Map("result" -> "success"))
+
     } catch {
-      case cf :CompileFailed =>
-        sender.send("compile", Map("result" -> "failure"))
+      case f :CompileFailed =>
+        send("compile", Map("result" -> "failure"))
       case e :Exception =>
-        sendLog(s"Compiler choked $e")
-        sender.send("compile", Map("result" -> "failure"))
+        sendLog(exToString(e))
+        send("compile", Map("result" -> "failure"))
     }
   }
 
-  private def file (root :File, comps :String*) = (root /: comps) { new File(_, _) }
-
-  private val mvn = new MavenResolver()
-  private def mavenJar (groupId :String, artifactId :String, version :String,
-                        classifier :Option[String] = None) = {
-    val mid = new RepoId(groupId, artifactId, version, "jar", classifier getOrElse null)
-    mvn.resolve(mid).get(mid) match {
-      case null => throw new RuntimeException(s"Unable to resolve artifact: $mid")
-      case path => path.toFile
-    }
-  }
-
-  private def zincSetup (scalacVersion :String, sbtVersion :String, output :File) = Setup(
-    mavenJar("org.scala-lang", "scala-compiler", scalacVersion),
-    mavenJar("org.scala-lang", "scala-library", scalacVersion),
-    Seq(mavenJar("org.scala-lang", "scala-reflect", scalacVersion)),
-    mavenJar("com.typesafe.sbt", "sbt-interface", sbtVersion),
-    mavenJar("com.typesafe.sbt", "compiler-interface", sbtVersion, Some("sources")),
-    findJavaHome,
-    false /*forkJava*/,
-    file(output.getParentFile, "cache"))
-
-  private def findJavaHome = {
-    val home = new File(System.getProperty("java.home"))
-    Some(if (home.getName == "jre") home.getParentFile else home)
+  private def exToString (ex :Throwable) = {
+    val sw = new java.io.StringWriter()
+    ex.printStackTrace(new java.io.PrintWriter(sw))
+    sw.toString
   }
 
   private def expand (sources :Array[File], into :ArrayBuffer[File]) :ArrayBuffer[File] = {
