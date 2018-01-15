@@ -4,7 +4,7 @@
 
 package scaled.zinc
 
-import java.io.File
+import java.io.{File, PrintWriter, StringWriter}
 import java.util.{Map => JMap, HashMap}
 import scala.collection.mutable.ArrayBuffer
 import scaled.prococol.{Receiver, Sender}
@@ -25,7 +25,23 @@ class Server (sender :Sender) extends Receiver.Listener {
 
   def onMessage (command :String, data :JMap[String,String]) = command match {
     case "compile" => compile(data)
+    case "status"  => send("status", Map("text" -> status))
     case _         => send("error", Map("cause" -> s"Unknown command: $command"))
+  }
+
+  private def status :String = {
+    val sw = new StringWriter ; val out = new PrintWriter(sw)
+    out.println("Zinc daemon status:")
+    setups.entrySet.asScala foreach { entry =>
+      val id = entry.getKey ; val setup = entry.getValue
+      out.println(s"* $id:")
+      out.println(" Last analysis:")
+      out.println(s" - ${setup.lastAnalysis}")
+      out.println(" Last compiled:")
+      setup.lastCompiledUnits.foreach { path => out.println(s" - $path") }
+    }
+    if (setups.size == 0) out.println("No cached compiler setups.")
+    sw.toString
   }
 
   private def compile (data :JMap[String,String]) {
@@ -43,7 +59,7 @@ class Server (sender :Sender) extends Receiver.Listener {
     val scalacOpts = get("scopts", Array[String](), untabsep(_))
     val scalacVersion = get("scvers", defScalacVersion, s => s)
     val sbtVersion = get("sbtvers", defSbtVersion, s => s)
-    val forceClean = get("preclean", false, _.toBoolean)
+    val incremental = get("increment", false, _.toBoolean)
     val logTrace = get("trace", false, _.toBoolean)
 
     val logger = new Logger {
@@ -60,7 +76,7 @@ class Server (sender :Sender) extends Receiver.Listener {
       def hasErrors = _problems.exists(_.severity == Severity.Error)
       def problems :Array[Problem] = _problems.toArray
       def log (problem :Problem) {
-        sendLog(problem.toString)
+        sendLog(s"P $problem")
         _problems += problem
       }
       def printSummary () {}
@@ -70,15 +86,16 @@ class Server (sender :Sender) extends Receiver.Listener {
     val sources = get("sources", Array[File](), _.split("\t").map(new File(_)))
     val sourceFiles = expand(sources, ArrayBuffer[File]()).toArray
     try {
-      val setup = setups.get(sessionId) match {
-        case null =>
-          val newSetup = Zinc.CompilerSetup(logger, reporter, target, scalacVersion)
-          setups.put(sessionId, newSetup)
-          newSetup
-        case setup =>
-          // TODO: validate config still matches (not likely, but if scalaVersion or target
-          // directory somehow changed, we'd want to reset)
-          setup
+      def newSetup = {
+        val newSetup = Zinc.CompilerSetup(logger, reporter, target, scalacVersion)
+        setups.put(sessionId, newSetup)
+        newSetup
+      }
+      val setup = if (!incremental) newSetup else setups.get(sessionId) match {
+        case null => newSetup
+        // TODO: validate config still matches (not likely, but if scalaVersion or target directory
+        // somehow changed, we'd want to reset)
+        case setup => setup
       }
 
       val inputs = setup.mkInputs(classpath, sourceFiles, output, scalacOpts, javacOpts)
