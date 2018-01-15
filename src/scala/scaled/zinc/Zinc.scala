@@ -58,8 +58,8 @@ object Zinc {
     val comps = compiler.compilers(sinst, ClasspathOptionsUtil.boot, None, scomp)
 
     val maxErrors = 100 // TODO :configure?
-    val extra = Array(InterfaceUtil.t2(("key", "value")))
 
+    var lastAnalysis :Option[AnalysisContents] = None
     var lastCompiledUnits :Set[String] = Set.empty
     val progress = new CompileProgress {
       override def advance (current :Int, total :Int) = true
@@ -67,28 +67,23 @@ object Zinc {
     }
 
     val cacheFile = new File(targetDir, "inc_compile")
-    val setup = compiler.setup(lookup, skip = false, cacheFile, CompilerCache.fresh, incOptions,
-                               reporter, Some(progress), extra)
 
-    var lastAnalysis :Option[AnalysisContents] = None
-
-    def mkInputs (classpath :Seq[File], sourceFiles :Array[File], classesDir :File,
+    def mkOptions (classpath :Seq[File], sourceFiles :Array[File], classesDir :File,
                   scalacOpts :Array[String], javacOpts :Array[String]) = {
       val fullcp = Array(classesDir) ++ sinst.allJars ++ classpath
-      val opts = CompileOptions.of(fullcp, sourceFiles, classesDir, scalacOpts, javacOpts,
-                                   maxErrors, pos => pos, // source position mapper
-                                   CompileOrder.Mixed)
-      compiler.inputs(opts, comps, setup, compiler.emptyPreviousResult)
+      CompileOptions.of(fullcp, sourceFiles, classesDir, scalacOpts, javacOpts, maxErrors,
+                        pos => pos /* source position mapper */, CompileOrder.Mixed)
     }
 
-    def doCompile (inputs :Inputs) :CompileResult = {
-      val inputsWithPrev = lastAnalysis match {
-        case None => inputs
-        case Some(ac) => inputs.withPreviousResult(
-          PreviousResult.of(Optional.of(ac.getAnalysis), Optional.of(ac.getMiniSetup)))
-      }
+    def doCompile (opts :CompileOptions, reporter :Reporter) :CompileResult = {
+      val setup = compiler.setup(lookup, skip = false, cacheFile, CompilerCache.fresh, incOptions,
+                                 reporter, Some(progress), Array())
+      val inputs = compiler.inputs(opts, comps, setup, lastAnalysis match {
+        case None    => compiler.emptyPreviousResult
+        case Some(a) => PreviousResult.of(Optional.of(a.getAnalysis), Optional.of(a.getMiniSetup))
+      })
       lastCompiledUnits = Set.empty
-      val result = compiler.compile(inputsWithPrev, logger)
+      val result = compiler.compile(inputs, logger)
       lastAnalysis = Some(AnalysisContents.create(result.analysis(), result.setup()))
       result
     }

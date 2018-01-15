@@ -98,8 +98,9 @@ class Server (sender :Sender) extends Receiver.Listener {
         case setup => setup
       }
 
-      val inputs = setup.mkInputs(classpath, sourceFiles, output, scalacOpts, javacOpts)
-      setup.doCompile(inputs)
+      val options = setup.mkOptions(classpath, sourceFiles, output, scalacOpts, javacOpts)
+      val result = setup.doCompile(options, reporter)
+      if (logTrace) sendLog(s"Compile result: $result")
       send("compile", Map("result" -> "success"))
 
     } catch {
