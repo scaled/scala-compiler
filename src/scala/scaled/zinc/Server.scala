@@ -14,7 +14,7 @@ import xsbti.{CompileFailed, Position, Problem, Severity, Reporter}
 class Server (sender :Sender) extends Receiver.Listener {
   import scala.collection.JavaConverters._
 
-  val defScalacVersion = "2.12.0"
+  val defScalacVersion = "2.12.4"
   val defSbtVersion = "0.13.5"
 
   // TODO: cap these at one or two in memory
